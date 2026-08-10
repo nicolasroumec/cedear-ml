@@ -22,7 +22,7 @@ Guía completa para humanos (mecánica del instrumento, indicadores, fuentes, tr
 | OHLCV subyacente, índices (S&P 500) | `yfinance` |
 | Tasa FED, CPI EEUU | FRED |
 | Tasa/oficial Argentina | BCRA (API pública) |
-| CCL histórico | dolarapi.com / Bluelytics |
+| CCL histórico | ArgentinaDatos (`api.argentinadatos.com/v1/cotizaciones/dolares/contadoconliqui`) — dolarapi.com solo da el valor del día, no serie histórica |
 | Cotización CEDEAR en pesos, ratio vigente | IOL / Rava / ByMA Data |
 
 ## Stack y convenciones de código

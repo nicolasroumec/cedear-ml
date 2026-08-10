@@ -5,17 +5,17 @@ Proyecto de una persona: nada de Gitflow (sin `develop`/`release`). `master` sie
 ## Ramas
 
 - Una rama por incremento del roadmap (ver `docs/ROADMAP.md`), no por tarea diminuta dentro de esa fase.
-- Nombre: `fase/<n>-<slug>`, ej. `fase/1-fetch-datos`, `fase/2-features-target`, `fase/3-train-model`.
+- Nombre: `<slug>` descriptivo de lo que hace, sin prefijos, ej. `fetch-datos`, `features-target`, `train-model`.
 - Se mergea a `master` cuando la fase compila, pasa los tests y el checklist de esa fase en el roadmap queda tildado.
 - Rama borrada después del merge — no quedan ramas viejas colgando en el remoto.
 
 ```bash
-git checkout -b fase/1-fetch-datos
+git checkout -b fetch-datos
 # ... trabajo ...
-git push -u origin fase/1-fetch-datos
+git push -u origin fetch-datos
 # merge a master (PR en GitHub o merge directo)
-git branch -d fase/1-fetch-datos
-git push origin --delete fase/1-fetch-datos
+git branch -d fetch-datos
+git push origin --delete fetch-datos
 ```
 
 ## Commits

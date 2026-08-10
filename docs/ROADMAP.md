@@ -24,10 +24,12 @@ Incrementos en orden. Cada uno es una rama y (idealmente) un commit por tarea ch
 
 ## Fase 3 — Entrenamiento
 
-- [ ] `src/train.py` — split temporal con `TimeSeriesSplit` (walk-forward), nunca random shuffle
-- [ ] Entrenar `RandomForestClassifier` y `GradientBoostingClassifier`, comparar
-- [ ] Métricas: accuracy, precision/recall, matriz de confusión — **y comparar contra un baseline naive** (predecir siempre la clase mayoritaria) para saber si el modelo realmente aporta algo
-- [ ] Guardar el mejor modelo en `models/`
+- [x] `src/train.py` — split temporal con `TimeSeriesSplit` (walk-forward, con `gap=horizonte` para que el target no se filtre al train), nunca random shuffle
+- [x] Entrenar `RandomForestClassifier` y `GradientBoostingClassifier`, comparar
+- [x] Métricas: accuracy, precision/recall, matriz de confusión, IC — **y comparar contra un baseline naive** (predecir siempre la clase mayoritaria) para saber si el modelo realmente aporta algo
+- [x] Guardar el mejor modelo en `models/`
+
+**Resultado: ningún modelo le gana al baseline naive.** Con horizontes de 1, 5, 10 y 21 días el edge va de +0.2% a -7.4%, y el IC está en el rango del ruido (±0.06). No es un bug: es el resultado honesto de indicadores técnicos solos sobre un único ticker. Se documenta como tal y se ataca en Fase 5 (más variables), no tuneando hiperparámetros hasta que el número quede lindo — eso sería sobreajustar la validación.
 
 ## Fase 4 — Inferencia
 

@@ -11,9 +11,9 @@ Incrementos en orden. Cada uno es una rama y (idealmente) un commit por tarea ch
 
 ## Fase 1 — Datos crudos
 
-- [ ] `src/fetch.py::fetch_underlying(ticker)` — OHLCV de AAPL vía `yfinance`, guardar en `data/raw/`
-- [ ] `src/fetch.py::fetch_ccl()` — histórico CCL vía dolarapi.com (o Bluelytics de respaldo)
-- [ ] Test: los datos descargados tienen las columnas esperadas y sin huecos de fecha inexplicados
+- [x] `src/fetch.py::fetch_underlying(ticker)` — OHLCV de AAPL vía `yfinance`, guardar en `data/raw/`
+- [x] `src/fetch.py::fetch_ccl()` — histórico CCL vía ArgentinaDatos (`api.argentinadatos.com`, la fuente que sí tiene series históricas; dolarapi.com solo da el valor del día)
+- [x] Test: los datos descargados tienen las columnas esperadas (`tests/test_fetch.py`)
 
 ## Fase 2 — Features y target
 
@@ -33,11 +33,20 @@ Incrementos en orden. Cada uno es una rama y (idealmente) un commit por tarea ch
 
 - [ ] `src/predict.py` — cargar modelo guardado y predecir sobre datos más recientes
 - [ ] Documentar cómo correr una predicción de punta a punta (actualizar `README.md`)
+- [ ] Sección "Resultados" en `README.md` con las métricas reales del modelo vs. el baseline naive (recién acá, cuando hay resultados de verdad para mostrar)
 
 ## Fase 5 — Iterar (recién después de tener el pipeline completo funcionando)
 
 - [ ] Sumar variables macro (tasa FED, riesgo país) si el modelo simple no alcanza
 - [ ] Evaluar `lightgbm`/`xgboost` solo si sklearn se queda corto
 - [ ] Escalar de 1 CEDEAR a una cartera chica (2-3 tickers)
+
+## Fase 6 — Portfolio (proyecto pensado para mostrarse, ver `docs/WORKFLOW.md`)
+
+- [ ] Docstrings + type hints en todas las funciones de `src/` (hoy los stubs no los tienen)
+- [ ] EDA con visualizaciones reales en `notebooks/01_exploracion.ipynb` (no solo código, también lectura de lo que se ve)
+- [ ] GitHub Actions: correr `pytest` en cada push/PR — la única pieza de "infra" que suma para portfolio sin ser peso muerto
+- [ ] `LICENSE` (MIT, salvo que prefieras otra)
+- [ ] Revisión final del `README.md`: que cuente la historia completa (problema → enfoque → resultados → limitaciones), no solo comandos
 
 No se arranca una fase sin haber cerrado la anterior — evita tener features calculados sobre datos que todavía no se validaron, o un modelo entrenado sobre un target mal definido.

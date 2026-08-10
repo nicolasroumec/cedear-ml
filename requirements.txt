@@ -2,7 +2,6 @@ yfinance
 requests
 pandas
 numpy
-pandas-ta
 scikit-learn
 matplotlib
 jupyter

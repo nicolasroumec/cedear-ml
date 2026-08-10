@@ -25,6 +25,11 @@ Guía completa para humanos (mecánica del instrumento, indicadores, fuentes, tr
 | CCL histórico | dolarapi.com / Bluelytics |
 | Cotización CEDEAR en pesos, ratio vigente | IOL / Rava / ByMA Data |
 
-## Convenciones de código
+## Stack y convenciones de código
 
-Todavía no definidas — no hay código en el repo. Actualizar esta sección cuando se fije el lenguaje/estructura de carpetas en vez de anticiparla acá.
+- **Entorno**: Python 3.11+, `venv` + `requirements.txt`. Sin Poetry/uv — overhead innecesario para un proyecto de una persona.
+- **Librerías**: `yfinance` (subyacente/índices), `requests` (CCL/BCRA/FRED), `pandas`/`numpy`, `pandas-ta` (indicadores técnicos — no reinventarlos a mano), `scikit-learn` (modelos + `TimeSeriesSplit` para walk-forward), `matplotlib`, `jupyter`. `lightgbm`/`xgboost` solo si sklearn se queda corto — no instalar por adelantado.
+- **Modelo inicial**: clasificación binaria (dirección del retorno a N días) con `RandomForestClassifier`/`GradientBoostingClassifier`. Sin LSTM/deep learning todavía — no hay evidencia de que la complejidad pague con el volumen de datos disponible por CEDEAR.
+- **Alcance inicial**: un solo CEDEAR (AAPL) para validar el pipeline end-to-end antes de escalar a una cartera.
+- **Estructura**: `src/fetch.py` (descarga), `src/features.py` (indicadores + target), `src/train.py` (walk-forward + entrenamiento), `src/predict.py` (inferencia) — módulos simples ejecutables, sin clases hasta que haya una razón concreta. `notebooks/` es solo para exploración, la lógica reusable vive en `src/`. `tests/` con smoke tests, en particular contra look-ahead bias.
+- Explícitamente afuera hasta que el proyecto lo justifique: Docker, MLflow, orquestador (Airflow/Prefect), API REST, empaquetado pip.

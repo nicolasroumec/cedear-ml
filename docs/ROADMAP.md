@@ -17,10 +17,10 @@ Incrementos en orden. Cada uno es una rama y (idealmente) un commit por tarea ch
 
 ## Fase 2 — Features y target
 
-- [ ] `src/features.py::add_technical_indicators` — SMA, EMA, RSI, MACD, Bollinger, ATR vía `pandas-ta`
-- [ ] Unir el CCL al dataset del subyacente (join por fecha)
-- [ ] `src/features.py::add_target` — retorno a N días + etiqueta binaria (`> 0` → 1, si no → 0)
-- [ ] Test real de look-ahead bias (reemplaza el placeholder actual en `tests/test_features.py`)
+- [x] `src/features.py::add_technical_indicators` — SMA, EMA, RSI, MACD, Bollinger, ATR (a mano con pandas: `pandas-ta` no soporta Python 3.11)
+- [x] Unir el CCL al dataset del subyacente (join por fecha, normalizando timezone + ffill)
+- [x] `src/features.py::add_target` — retorno a N días + etiqueta binaria (`> 0` → 1, si no → 0)
+- [x] Test real de look-ahead bias (reemplaza el placeholder actual en `tests/test_features.py`)
 
 ## Fase 3 — Entrenamiento
 

@@ -33,7 +33,7 @@ Incrementos en orden. Cada uno es una rama y (idealmente) un commit por tarea ch
 
 ## Fase 4 — Inferencia
 
-- [ ] `src/predict.py` — cargar modelo guardado y predecir sobre datos más recientes
+- [x] `src/predict.py` — cargar modelo guardado y predecir sobre datos más recientes
 - [ ] Documentar cómo correr una predicción de punta a punta (actualizar `README.md`)
 - [ ] Sección "Resultados" en `README.md` con las métricas reales del modelo vs. el baseline naive (recién acá, cuando hay resultados de verdad para mostrar)
 

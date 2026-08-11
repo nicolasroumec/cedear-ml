@@ -129,7 +129,24 @@ como: a 21 días el modelo acierta 59%, que suena mucho mejor que el 53.7% de
 acciones suben casi siempre. **Mirar el accuracy solo me habría hecho elegir
 el peor modelo.**
 
-### `src/predict.py` — Fase 4, todavía stub
+### `src/predict.py` — usar el modelo guardado
+
+`load_model()` levanta el pkl, `predict()` devuelve la probabilidad de suba
+por fila, `predict_latest()` junta las dos cosas sobre el último día con
+datos.
+
+**Las columnas se toman de `model["features"]`, nunca del DataFrame.** sklearn
+las pasa por posición, no por nombre: si el orden no coincide con el del
+entrenamiento no falla ni avisa, devuelve fruta. Eso lo cubre
+`test_predict_respeta_el_orden_de_features_del_bundle`.
+
+**El detalle que me trabó**: `build_dataset` tiraba las últimas N filas
+(`dropna` sobre el target) — justo las que necesito para predecir, porque su
+futuro todavía no pasó. Le agregué `require_target=False` para inferencia.
+Y de paso corté el `to_csv` en ese camino: si inferencia también escribiera,
+pisaría `data/processed/aapl_dataset.csv` con filas sin target y el próximo
+entrenamiento que lo leyera arrancaría con otros datos. Es exactamente el bug
+de `test_fetch` otra vez, así que esta vez lo dejé testeado.
 
 ### `tests/test_fetch.py`
 
@@ -171,7 +188,8 @@ atrás, y que RSI/ATR/volumen den valores en rangos posibles.
 
 ## Estado
 
-- Fase 0, 1, 2 y 3 cerradas. Rama actual: `train-model`.
+- Fase 0, 1, 2 y 3 cerradas. Rama actual: `predict-inference` (Fase 4, falta
+  el README).
 - Dataset: 2138 filas, 13 features, horizonte 5 días.
 - Modelo guardado: `models/aapl_random_forest.pkl` (edge −0.8%, o sea: todavía
   no le gana a nada). Sigue Fase 4: inferencia.

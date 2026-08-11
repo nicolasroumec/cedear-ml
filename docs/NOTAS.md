@@ -5,6 +5,72 @@ Mis apuntes de qué hace cada cosa y por qué. No es documentación del repo
 
 ---
 
+## Glosario — las palabras que se me cruzan
+
+Escrito con el proyecto adelante: cada término apunta a dónde vive en el código.
+
+**Pipeline.** La cadena de pasos que va del dato crudo a la predicción, donde
+la salida de cada paso es la entrada del siguiente. Acá son cuatro:
+`fetch → features → train → predict`. La palabra no es más que eso: no hay una
+librería de "pipelines" ni nada instalado, son cuatro archivos `.py` que corro
+en orden. Lo que sí importa es que cada paso **guarda en disco**: por eso puedo
+correr solo `predict` sin volver a bajar dos mil filas de yfinance, y por eso
+si algo sale raro puedo abrir el CSV intermedio y mirar en qué paso se rompió.
+(Ojo: `sklearn` tiene una clase `Pipeline` que es otra cosa más chica —
+encadenar transformaciones adentro de un modelo. Acá no la uso.)
+
+**`.pkl` / pickle.** Pickle es el formato de Python para **serializar**:
+agarrar un objeto que vive en memoria y escribirlo a disco tal cual, para
+levantarlo después idéntico. Entrenar los 300 árboles del Random Forest tarda;
+guardarlo en `models/aapl_random_forest.pkl` significa que `predict.py` lo
+levanta en un segundo con `joblib.load()` y no reentrena nada. Adentro del pkl
+guardo un diccionario con tres cosas: el modelo entrenado, la lista de features
+**en orden**, y el horizonte. Las últimas dos no son decoración — ver abajo.
+Dos avisos: es frágil entre versiones de sklearn (por eso el pkl no se
+commitea, se regenera), y **nunca abrir un pkl ajeno**, porque des-serializar
+ejecuta código arbitrario.
+
+**Feature.** Una variable de entrada, una columna del dataset. El modelo mira
+las 13 features de un día y responde. En `FEATURE_COLUMNS`.
+
+**Target.** Lo que quiero predecir, la respuesta correcta. Acá: ¿el retorno a
+5 días fue positivo? 1 o 0. En `add_target()`.
+
+**Entrenar.** Mostrarle al modelo muchas filas con su target al lado para que
+encuentre patrones. `modelo.fit(X, y)` — `X` son las features, `y` el target.
+
+**Accuracy / precision / recall.** Accuracy = qué porcentaje de días le pegué.
+Precision = de los días que dije "sube", cuántos subieron. Recall = de los días
+que subieron, cuántos agarré. Se separan porque un modelo que grita "sube"
+siempre tiene recall perfecto y es inútil.
+
+**Baseline.** La respuesta tonta contra la que comparo. Acá: predecir siempre
+la clase mayoritaria. Si el modelo no le gana, no aprendió nada.
+
+**Edge.** Accuracy − baseline. **El único número que significa algo acá.**
+
+**IC (information coefficient).** Correlación de rangos entre la confianza del
+modelo y el retorno que de verdad ocurrió. Mide si ordena bien los días, no
+solo si acierta el signo. Entre −0.03 y +0.06 es ruido.
+
+**Sobreajuste (overfitting).** Cuando el modelo se aprende de memoria el ruido
+del set de entrenamiento en vez del patrón, y anda bárbaro ahí y mal en datos
+nuevos. La versión sutil es sobreajustar la *validación*: tocar hiperparámetros
+mirando el resultado hasta que dé lindo. Por eso el edge negativo se ataca con
+más variables (Fase 5) y no tuneando.
+
+**Probabilidad / `predict_proba`.** En vez de "sube o baja", el modelo devuelve
+un número entre 0 y 1. `predict()` corta en 0.5; `predict_proba()` da el número
+crudo, que dice además *cuánta* confianza tiene.
+
+**Por qué el orden de las features importa tanto.** sklearn recibe una matriz
+de números y las identifica **por posición, no por nombre**. Si entrenó con
+`ret_1` en la columna 0 y le paso `rsi_14` ahí, no falla ni avisa: predice
+fruta con total seguridad. Por eso el orden viaja adentro del pkl y
+`predict.py` lo usa siempre. Hay un test solo para eso.
+
+---
+
 ## El flujo, de punta a punta
 
 ```
@@ -129,7 +195,24 @@ como: a 21 días el modelo acierta 59%, que suena mucho mejor que el 53.7% de
 acciones suben casi siempre. **Mirar el accuracy solo me habría hecho elegir
 el peor modelo.**
 
-### `src/predict.py` — Fase 4, todavía stub
+### `src/predict.py` — usar el modelo guardado
+
+`load_model()` levanta el pkl, `predict()` devuelve la probabilidad de suba
+por fila, `predict_latest()` junta las dos cosas sobre el último día con
+datos.
+
+**Las columnas se toman de `model["features"]`, nunca del DataFrame.** sklearn
+las pasa por posición, no por nombre: si el orden no coincide con el del
+entrenamiento no falla ni avisa, devuelve fruta. Eso lo cubre
+`test_predict_respeta_el_orden_de_features_del_bundle`.
+
+**El detalle que me trabó**: `build_dataset` tiraba las últimas N filas
+(`dropna` sobre el target) — justo las que necesito para predecir, porque su
+futuro todavía no pasó. Le agregué `require_target=False` para inferencia.
+Y de paso corté el `to_csv` en ese camino: si inferencia también escribiera,
+pisaría `data/processed/aapl_dataset.csv` con filas sin target y el próximo
+entrenamiento que lo leyera arrancaría con otros datos. Es exactamente el bug
+de `test_fetch` otra vez, así que esta vez lo dejé testeado.
 
 ### `tests/test_fetch.py`
 
@@ -171,7 +254,8 @@ atrás, y que RSI/ATR/volumen den valores en rangos posibles.
 
 ## Estado
 
-- Fase 0, 1, 2 y 3 cerradas. Rama actual: `train-model`.
+- Fase 0, 1, 2 y 3 cerradas. Rama actual: `predict-inference` (Fase 4, falta
+  el README).
 - Dataset: 2138 filas, 13 features, horizonte 5 días.
 - Modelo guardado: `models/aapl_random_forest.pkl` (edge −0.8%, o sea: todavía
   no le gana a nada). Sigue Fase 4: inferencia.

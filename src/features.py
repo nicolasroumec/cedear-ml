@@ -137,10 +137,20 @@ FEATURE_COLUMNS = [
 ]
 
 
-def build_dataset(ticker: str = "AAPL", horizon_days: int = 1) -> pd.DataFrame:
+def build_dataset(
+    ticker: str = "AAPL", horizon_days: int = 1, require_target: bool = True
+) -> pd.DataFrame:
     """Arma el dataset final listo para entrenar y lo guarda en data/processed/.
 
     Lee los CSV que dejo `fetch.py`; si no estan, los descarga.
+
+    Args:
+        ticker: simbolo del subyacente.
+        horizon_days: horizonte del target, en dias de rueda.
+        require_target: si es True (entrenamiento) tira las ultimas N filas,
+            que todavia no tienen futuro conocido. En inferencia va en False:
+            esas filas son justamente las que hay que predecir, porque la mas
+            reciente es el dia de hoy.
     """
     ohlcv_path = RAW_DIR / f"{ticker.lower()}_ohlcv.csv"
     ccl_path = RAW_DIR / "ccl.csv"
@@ -157,12 +167,16 @@ def build_dataset(ticker: str = "AAPL", horizon_days: int = 1) -> pd.DataFrame:
     df = add_ccl(df, _to_date_index(ccl))
     df = add_target(df, horizon_days)
 
-    # Se tiran las filas incompletas: las primeras (ventanas sin llenar) y las
-    # ultimas (todavia sin futuro conocido).
-    df = df.dropna(subset=FEATURE_COLUMNS + ["target"])
+    # Se tiran las primeras filas siempre (las ventanas rolling todavia no se
+    # llenaron). Las ultimas solo si hace falta el target.
+    df = df.dropna(subset=(FEATURE_COLUMNS + ["target"]) if require_target else FEATURE_COLUMNS)
 
-    PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
-    df.to_csv(PROCESSED_DIR / f"{ticker.lower()}_dataset.csv")
+    # Solo el dataset de entrenamiento se persiste. Si inferencia tambien
+    # escribiera, pisaria el CSV con filas sin target y el proximo
+    # entrenamiento que lo leyera arrancaria con datos distintos.
+    if require_target:
+        PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
+        df.to_csv(PROCESSED_DIR / f"{ticker.lower()}_dataset.csv")
     return df
 
 

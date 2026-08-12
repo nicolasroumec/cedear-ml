@@ -39,9 +39,11 @@ Incrementos en orden. Cada uno es una rama y (idealmente) un commit por tarea ch
 
 ## Fase 5 — Iterar (recién después de tener el pipeline completo funcionando)
 
-- [ ] Sumar variables macro (tasa FED, riesgo país) si el modelo simple no alcanza
+- [x] Sumar variables macro (tasa FED, riesgo país) si el modelo simple no alcanza
 - [ ] Evaluar `lightgbm`/`xgboost` solo si sklearn se queda corto
 - [ ] Escalar de 1 CEDEAR a una cartera chica (2-3 tickers)
+
+**Resultado de las variables macro: tampoco alcanzan.** Con VIX, curva de tasas, tasa FED, CPI y riesgo país (19 features en vez de 13) el edge empeora en 3 de los 4 horizontes: −0.6% / −1.5% / −5.5% / −2.5% a 1, 5, 10 y 21 días. El IC sigue entre −0.04 y +0.07, o sea ruido. Se deja el set completo de features y el número crudo, sin elegir el subconjunto que mejor puntúa: hacer eso sería sobreajustar la validación por la puerta de atrás. Ver `docs/NOTAS.md` para el detalle de por qué las series mensuales hacen ruido.
 
 ## Fase 6 — Portfolio (proyecto pensado para mostrarse, ver `docs/WORKFLOW.md`)
 

@@ -47,19 +47,23 @@ No hace falta reentrenar para predecir: `python -m src.train` guarda el modelo e
 
 **Ningún modelo le gana al baseline naive.** El baseline es "predecir siempre la clase mayoritaria", o sea gritar "sube" todos los días. Lo que importa no es el accuracy sino el `edge` = accuracy − baseline:
 
-| Horizonte | Mejor accuracy | Baseline naive | Edge |
-|---|---|---|---|
-| 1 día | 53.7% | 53.6% | **+0.2%** |
-| 5 días | 56.9% | 57.6% | **−0.8%** |
-| 10 días | 57.2% | 60.6% | **−3.4%** |
-| 21 días | 59.0% | 63.5% | **−4.5%** |
+| Horizonte | Mejor accuracy | Baseline naive | Edge (13 feat.) | Edge (+ macro) |
+|---|---|---|---|---|
+| 1 día | 53.0% | 53.6% | +0.2% | **−0.6%** |
+| 5 días | 56.1% | 57.7% | −0.8% | **−1.5%** |
+| 10 días | 55.1% | 60.5% | −3.4% | **−5.5%** |
+| 21 días | 61.0% | 63.5% | −4.5% | **−2.5%** |
 
-El information coefficient (correlación de rangos entre la confianza del modelo y el retorno real) quedó entre −0.03 y +0.06: ruido.
+La última columna es el pipeline actual (19 features: indicadores técnicos, CCL, VIX, curva de tasas, tasa FED, CPI y riesgo país). Sumar las cinco series macro **empeoró el resultado en tres de los cuatro horizontes**. El information coefficient —correlación de rangos entre la confianza del modelo y el retorno real— quedó entre −0.04 y +0.07: ruido.
+
+Se reporta el set completo de features y el número crudo. Elegir el subconjunto que mejor puntúa contra la validación mejoraría la tabla y no significaría nada: es sobreajustar la validación por la puerta de atrás.
 
 Vale la pena mirar la trampa que esconde esa tabla. A 21 días el modelo acierta 59%, bastante más que el 53.7% de 1 día — pero el baseline también sube a 63.5%, porque en horizontes largos las acciones suben casi siempre. **Reportar solo el accuracy habría hecho elegir el peor modelo de los cuatro.**
 
 ### Limitaciones
 
-- Indicadores técnicos sobre un solo ticker, sin variables macro. Es el punto de partida más simple, y el resultado dice que no alcanza.
-- El plan es atacarlo con más información (Fase 5 en `docs/ROADMAP.md`), no tuneando hiperparámetros hasta que el número quede lindo: eso sería sobreajustar la validación y cambiar un modelo honesto por uno que miente mejor.
-- El pipeline está completo y validado (sin look-ahead bias, con split temporal); lo que falta es señal.
+- Un solo ticker, con datos diarios de acceso público. Que no aparezca señal es el resultado esperable: si con esto se pudiera anticipar AAPL a 5 días, ya no se podría.
+- Las series macro mensuales (CPI, tasa FED) traen un problema propio: propagadas a diaria repiten el mismo valor ~21 días, así que cada valor identifica un mes del calendario y el árbol puede memorizar la época en vez de aprender una relación. Detalle en `docs/NOTAS.md`.
+- FRED devuelve valores **revisados**, no los que se conocían en cada momento. Para datos *point-in-time* de verdad habría que usar ALFRED.
+- No se tunean hiperparámetros para mejorar el número: eso sería sobreajustar la validación y cambiar un modelo honesto por uno que miente mejor.
+- El pipeline está completo y validado (sin look-ahead bias, con split temporal, con la demora de publicación de cada serie macro respetada); lo que falta es señal.

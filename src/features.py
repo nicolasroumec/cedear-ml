@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.fetch import RAW_DIR, fetch_ccl, fetch_underlying
+from src.fetch import MACRO_LAGS, RAW_DIR, fetch_ccl, fetch_macro, fetch_underlying
 
 PROCESSED_DIR = Path(__file__).resolve().parent.parent / "data" / "processed"
 
@@ -98,6 +98,51 @@ def add_ccl(df: pd.DataFrame, ccl: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def add_macro(df: pd.DataFrame, macro: pd.DataFrame) -> pd.DataFrame:
+    """Pega las series macro al dataset, cada una desfasada por su demora real.
+
+    El desfasaje es el punto de esta funcion. Una serie macro tiene dos fechas
+    distintas: la que describe (el CPI de junio) y aquella en que se entera el
+    mercado (mediados de julio). Joinear por la primera le daria al modelo seis
+    semanas de futuro. Aca cada serie se corre hacia adelante `MACRO_LAGS[s]`
+    dias antes del join, asi la fila del dia t solo puede ver lo que ya estaba
+    publicado en t.
+
+    Despues del corrimiento se propaga con ffill, nunca bfill: el CPI de junio
+    vale para todos los dias hasta que salga el de julio, pero copiar hacia
+    atras seria meter futuro en el pasado otra vez.
+
+    Args:
+        df: dataset indexado por fecha de rueda.
+        macro: salida de `fetch_macro()`, con fechas de referencia sin corregir.
+
+    Returns:
+        Copia de `df` con las columnas macro y sus derivados.
+    """
+    out = df.copy()
+
+    # El interanual del CPI se calcula sobre la serie mensual, antes de pasarla
+    # a diaria: despues del ffill, `pct_change(12)` compararia con 12 dias
+    # atras en vez de 12 meses.
+    # (columna de salida) -> (serie, de que serie cruda sale su lag)
+    series = {n: (macro[n], n) for n in ["vix", "yield_curve", "fed_rate", "riesgo_pais"]}
+    series["cpi_yoy"] = (macro["cpi"].dropna().pct_change(12), "cpi")
+
+    for nombre, (serie, serie_cruda) in series.items():
+        serie = serie.dropna()
+        serie.index = serie.index + pd.Timedelta(days=MACRO_LAGS[serie_cruda])
+        out[nombre] = serie.reindex(out.index, method="ffill")
+
+    # Igual que los tecnicos: se usan cambios, no niveles. Una tasa del 5% no
+    # significa lo mismo en 2019 que en 2024, pero "la Fed subio 100 puntos en
+    # tres meses" si es comparable entre epocas. El VIX y la curva son la
+    # excepcion: el primero revierte a la media y la segunda ya es un spread.
+    out["vix_ret_5"] = out["vix"].pct_change(5)
+    out["fed_rate_chg_63"] = out["fed_rate"].diff(63)
+    out["riesgo_pais_ret_5"] = out["riesgo_pais"].pct_change(5)
+    return out
+
+
 def add_target(df: pd.DataFrame, horizon_days: int = 1) -> pd.DataFrame:
     """Agrega el retorno futuro a N dias y su etiqueta binaria.
 
@@ -134,6 +179,14 @@ FEATURE_COLUMNS = [
     "volume_ratio",
     "ccl_ret_1",
     "ccl_ret_5",
+    # Macro (Fase 5): el modelo con solo tecnicos no le gana al baseline, asi
+    # que se le suma informacion que no estaba viendo.
+    "vix",
+    "vix_ret_5",
+    "yield_curve",
+    "fed_rate_chg_63",
+    "cpi_yoy",
+    "riesgo_pais_ret_5",
 ]
 
 
@@ -154,6 +207,7 @@ def build_dataset(
     """
     ohlcv_path = RAW_DIR / f"{ticker.lower()}_ohlcv.csv"
     ccl_path = RAW_DIR / "ccl.csv"
+    macro_path = RAW_DIR / "macro.csv"
 
     underlying = (
         pd.read_csv(ohlcv_path, index_col="fecha")
@@ -161,10 +215,12 @@ def build_dataset(
         else fetch_underlying(ticker)
     )
     ccl = pd.read_csv(ccl_path, index_col="fecha") if ccl_path.exists() else fetch_ccl()
+    macro = pd.read_csv(macro_path, index_col="fecha") if macro_path.exists() else fetch_macro()
 
     df = _to_date_index(underlying)
     df = add_technical_indicators(df)
     df = add_ccl(df, _to_date_index(ccl))
+    df = add_macro(df, _to_date_index(macro))
     df = add_target(df, horizon_days)
 
     # Se tiran las primeras filas siempre (las ventanas rolling todavia no se

@@ -32,15 +32,17 @@ def load_model(path: str | Path) -> dict:
     return joblib.load(path)
 
 
-def latest_model_path(ticker: str = "AAPL") -> Path:
-    """Devuelve el pkl mas reciente del ticker.
+def latest_model_path() -> Path:
+    """Devuelve el pkl mas reciente de `models/`.
 
     `train.py` guarda solo el mejor modelo de cada corrida, asi que el mas
-    nuevo por fecha de modificacion es el ultimo que gano la comparacion.
+    nuevo por fecha de modificacion es el ultimo que gano la comparacion. Ya no
+    se filtra por ticker: desde Fase 5 el modelo es uno solo para toda la
+    cartera, y la lista de tickers viene adentro del bundle.
     """
-    pkls = sorted(MODELS_DIR.glob(f"{ticker.lower()}_*.pkl"), key=lambda p: p.stat().st_mtime)
+    pkls = sorted(MODELS_DIR.glob("*.pkl"), key=lambda p: p.stat().st_mtime)
     if not pkls:
-        raise FileNotFoundError(f"No hay modelo para {ticker} en {MODELS_DIR}. Corre `python -m src.train`.")
+        raise FileNotFoundError(f"No hay modelos en {MODELS_DIR}. Corre `python -m src.train`.")
     return pkls[-1]
 
 
@@ -59,32 +61,57 @@ def predict(model: dict, df: pd.DataFrame) -> pd.Series:
     return pd.Series(model["modelo"].predict_proba(X)[:, 1], index=df.index, name="proba_suba")
 
 
-def predict_latest(ticker: str = "AAPL") -> pd.Series:
-    """Predice sobre el ultimo dia con datos disponibles.
+def predict_latest(ticker: str = "AAPL", model: dict | None = None) -> pd.Series:
+    """Predice sobre el ultimo dia con datos disponibles de un ticker.
 
     Usa `require_target=False` porque las filas mas recientes no tienen target
     (su futuro todavia no ocurrio) y son justamente las que interesan.
+
+    Args:
+        ticker: simbolo a predecir.
+        model: bundle ya cargado. Se pasa cuando hay que predecir varios
+            tickers seguidos, para no releer el pkl una vez por cada uno.
     """
-    model = load_model(latest_model_path(ticker))
+    model = model or load_model(latest_model_path())
     df = build_dataset(ticker, model["horizon_days"], require_target=False)
     return predict(model, df)
 
 
-if __name__ == "__main__":
-    TICKER = "AAPL"
-    ruta = latest_model_path(TICKER)
-    model = load_model(ruta)
-    proba = predict_latest(TICKER)
+def rank_tickers(model: dict) -> pd.DataFrame:
+    """Ordena los tickers del modelo por probabilidad de suba del ultimo dia.
 
-    fecha = proba.index[-1]
-    p = proba.iloc[-1]
+    Esta es la pregunta que habilita tener varios activos: no "sube AAPL?" sino
+    "de estos tres, cual tiene mas chances de subir". Comparar probabilidades
+    entre tickers es legitimo porque salen todas del mismo modelo, entrenado
+    sobre las filas de los tres juntas.
+
+    Returns:
+        DataFrame con una fila por ticker (proba_suba y fecha del ultimo dato),
+        de mayor a menor probabilidad.
+    """
+    filas = {}
+    for ticker in model["tickers"]:
+        proba = predict_latest(ticker, model)
+        filas[ticker] = {"proba_suba": proba.iloc[-1], "fecha": proba.index[-1]}
+    return pd.DataFrame(filas).T.sort_values("proba_suba", ascending=False)
+
+
+if __name__ == "__main__":
+    ruta = latest_model_path()
+    model = load_model(ruta)
+    ranking = rank_tickers(model)
+
+    fecha = ranking["fecha"].max()
     atraso = (pd.Timestamp.today().normalize() - fecha).days
 
     print(f"Modelo: {ruta.name}  (horizonte {model['horizon_days']} dias)")
     print(f"Ultimo dato: {fecha.date()}  ({atraso} dias atras)")
     if atraso > 5:
         print("  ^ los CSV de data/raw/ estan viejos. Corre `python -m src.fetch` para refrescar.")
-    print(f"\nProbabilidad de suba a {model['horizon_days']} dias: {p:.1%}")
-    print(f"Direccion predicha: {'SUBE' if p > 0.5 else 'BAJA'}")
-    print(f"\nUltimos 5 dias:\n{(proba.tail(5) * 100).round(1).to_string()}")
-    print("\nRecordatorio: edge -0.8% contra el baseline naive. El pipeline anda, el modelo todavia no.")
+
+    print(f"\nProbabilidad de suba a {model['horizon_days']} dias, de mayor a menor:")
+    for ticker, fila in ranking.iterrows():
+        print(f"  {ticker:6s} {fila['proba_suba']:.1%}   {'SUBE' if fila['proba_suba'] > 0.5 else 'BAJA'}")
+
+    print("\nRecordatorio: el edge contra el baseline naive sigue siendo negativo.")
+    print("El pipeline anda de punta a punta; el modelo todavia no tiene senal.")

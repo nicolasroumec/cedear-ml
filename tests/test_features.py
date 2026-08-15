@@ -7,7 +7,13 @@ sintetico y verifican propiedades del calculo.
 import numpy as np
 import pandas as pd
 
-from src.features import FEATURE_COLUMNS, add_ccl, add_target, add_technical_indicators
+from src.features import (
+    FEATURE_COLUMNS,
+    add_ccl,
+    add_macro,
+    add_target,
+    add_technical_indicators,
+)
 
 
 def _synthetic_ohlcv(n: int = 200, seed: int = 0) -> pd.DataFrame:
@@ -32,6 +38,27 @@ def _synthetic_ccl(index: pd.DatetimeIndex, seed: int = 1) -> pd.DataFrame:
     return pd.DataFrame({"ccl": valores}, index=index)
 
 
+def _synthetic_macro(index: pd.DatetimeIndex, seed: int = 2) -> pd.DataFrame:
+    """Las cinco series macro con la misma forma que devuelve `fetch_macro`.
+
+    Las de mercado son diarias; el CPI es mensual y arranca dos años antes,
+    porque el interanual necesita 12 meses previos para existir.
+    """
+    rng = np.random.default_rng(seed)
+    diario = pd.DataFrame(
+        {
+            "vix": 20 + rng.normal(0, 3, len(index)).cumsum() % 10,
+            "yield_curve": rng.normal(0.5, 0.2, len(index)),
+            "fed_rate": np.linspace(1.0, 5.0, len(index)),
+            "riesgo_pais": 1500 + rng.normal(0, 50, len(index)).cumsum() % 200,
+        },
+        index=index,
+    )
+    meses = pd.date_range(index[0] - pd.DateOffset(years=2), index[-1], freq="MS")
+    cpi = pd.DataFrame({"cpi": np.linspace(250, 300, len(meses))}, index=meses)
+    return diario.join(cpi, how="outer")
+
+
 def test_features_no_look_ahead():
     """Ningun feature de la fila t puede cambiar si se borra todo lo posterior a t.
 
@@ -43,15 +70,58 @@ def test_features_no_look_ahead():
     """
     ohlcv = _synthetic_ohlcv()
     ccl = _synthetic_ccl(ohlcv.index)
+    macro = _synthetic_macro(ohlcv.index)
 
-    completo = add_ccl(add_technical_indicators(ohlcv), ccl)
+    completo = add_macro(add_ccl(add_technical_indicators(ohlcv), ccl), macro)
 
     for corte in (60, 120, 199):
-        truncado = add_ccl(add_technical_indicators(ohlcv.iloc[: corte + 1]), ccl)
+        truncado = add_macro(
+            add_ccl(add_technical_indicators(ohlcv.iloc[: corte + 1]), ccl), macro
+        )
         pd.testing.assert_series_equal(
             completo[FEATURE_COLUMNS].iloc[corte],
             truncado[FEATURE_COLUMNS].iloc[corte],
         )
+
+
+def test_macro_respeta_la_demora_de_publicacion():
+    """El CPI no puede aparecer en el dataset antes de la fecha en que se publico.
+
+    Es el look-ahead especifico de los datos macro, y el mas facil de comerse
+    sin darse cuenta: el CPI de junio lleva fecha 2020-06-01, pero el mercado
+    se entera a mediados de julio. Joineando por la fecha de referencia el
+    modelo tendria seis semanas de ventaja sobre la realidad.
+
+    Se mete un salto grande en el CPI de un mes conocido y se verifica que el
+    dataset no lo registre hasta pasados los 45 dias de demora.
+    """
+    index = pd.date_range("2020-01-01", periods=400, freq="B", name="fecha")
+    macro = _synthetic_macro(index)
+
+    salto = pd.Timestamp("2020-06-01")
+    macro.loc[macro.index >= salto, "cpi"] *= 2
+
+    unido = add_macro(pd.DataFrame(index=index), macro)
+    cpi_yoy = unido["cpi_yoy"].dropna()
+
+    antes = cpi_yoy[cpi_yoy.index < salto + pd.Timedelta(days=45)]
+    despues = cpi_yoy[cpi_yoy.index >= salto + pd.Timedelta(days=45)]
+
+    assert antes.max() < 0.5, "el salto del CPI se filtro antes de publicarse"
+    assert despues.max() > 0.5, "el salto del CPI nunca llego al dataset"
+
+
+def test_macro_se_propaga_hacia_adelante_nunca_hacia_atras():
+    """Entre publicaciones vale el ultimo dato conocido, no el que todavia no salio."""
+    index = pd.date_range("2020-01-01", periods=200, freq="B", name="fecha")
+    macro = _synthetic_macro(index)
+    hueco = index[50]
+    macro_con_hueco = macro.drop(index=hueco)
+
+    unido = add_macro(pd.DataFrame(index=index), macro_con_hueco)
+
+    assert unido["vix"].loc[hueco] == macro["vix"].loc[index[49]]
+    assert unido["vix"].loc[hueco] != macro["vix"].loc[index[51]]
 
 
 def test_target_mira_al_futuro_y_no_al_pasado():

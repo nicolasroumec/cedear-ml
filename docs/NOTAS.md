@@ -155,6 +155,37 @@ veces falta un feriado argentino que sí es día de rueda en EEUU → `ffill`,
 que copia el valor del día anterior. Nunca hacia atrás: copiar el valor del
 día *siguiente* sería meter futuro en el pasado.
 
+**Las macro** (`add_macro`, Fase 5): VIX, curva de tasas, tasa FED y CPI de
+FRED, riesgo país de ArgentinaDatos. FRED las sirve por un endpoint CSV que no
+pide API key, así que no hubo que instalar ni configurar nada.
+
+**Acá el problema es que cada dato macro tiene dos fechas.** La que describe
+(el CPI de junio lleva fecha `2020-06-01`) y aquella en que el mercado se
+entera (mediados de julio). Si joineo por la primera, le estoy dando al modelo
+la inflación de junio el 1 de junio — seis semanas antes de que existiera. Por
+eso cada serie se corre hacia adelante los días que tarda en publicarse
+(`MACRO_LAGS` en fetch.py) *antes* del join: CPI 45 días, tasa FED 1, VIX y
+curva 0 porque cierran con la bolsa. Lo cubre
+`test_macro_respeta_la_demora_de_publicacion`, que mete un salto grande en el
+CPI de un mes conocido y exige que el dataset no lo vea hasta 45 días después.
+Probado rompiéndolo (lag en 0) y falla, así que sirve.
+
+Lo otro que aprendí: **una serie mensual propagada a diaria es un identificador
+de mes.** `cpi_yoy` tiene 100 valores distintos en 2094 filas (los técnicos
+tienen ~2091), porque el mismo valor se repite los ~21 días del mes. El árbol
+puede partir por ahí y memorizar "cuando `cpi_yoy` vale 0.0473 estamos en marzo
+de 2022, y ahí pasó tal cosa" en vez de aprender una relación. Como el
+walk-forward siempre testea en un período posterior, esa memoria no vale nada
+ahí. Se ve en el resultado: sacando las dos mensuales el edge a 5 días pasa de
+−1.5% a −0.3% sobre el mismo dataset. **Aun así las dejé adentro**: elegir el
+subconjunto que mejor puntúa es sobreajustar la validación, que es justo lo que
+el roadmap dice que no hay que hacer. El número honesto es el de las 19.
+
+Limitación que me queda pendiente: FRED devuelve los valores *revisados*, no
+los que se conocían en ese momento (para eso hay que ir a ALFRED, que sirve
+datos "vintage"). Para el CPI las revisiones son chicas y para VIX o la curva
+prácticamente no hay, así que por ahora lo dejo anotado y sigo.
+
 **El target** (`add_target`): retorno entre `t` y `t+N`, y la etiqueta
 binaria (1 si es positivo, 0 si no). Es la única función del módulo que mira
 al futuro, y tiene que ser así — es exactamente lo que el modelo debe
@@ -180,7 +211,7 @@ No uso `StandardScaler`: los árboles parten por umbrales sobre cada feature
 por separado, así que no les importa la escala. Si algún día pruebo
 regresión logística o SVM, ahí sí hace falta.
 
-**El resultado (Fase 3): ningún modelo le gana al baseline.**
+**El resultado (Fase 3, 13 features): ningún modelo le gana al baseline.**
 
 | Horizonte | Mejor accuracy | Baseline | Edge |
 |---|---|---|---|
@@ -194,6 +225,20 @@ como: a 21 días el modelo acierta 59%, que suena mucho mejor que el 53.7% de
 1 día. Pero el baseline también sube a 63.5%, porque en horizontes largos las
 acciones suben casi siempre. **Mirar el accuracy solo me habría hecho elegir
 el peor modelo.**
+
+**El resultado (Fase 5, 19 features): las macro tampoco alcanzan.**
+
+| Horizonte | Edge con 13 features | Edge con macro |
+|---|---|---|
+| 1 día | +0.2% | −0.6% |
+| 5 días | −0.8% | −1.5% |
+| 10 días | −3.4% | −5.5% |
+| 21 días | −4.5% | −2.5% |
+
+Peor en tres de los cuatro horizontes. Le tiré al modelo cinco series macro
+nuevas y no encontró nada — lo cual, siendo honesto, es el resultado que uno
+debería esperar: si con datos públicos y un Random Forest se pudiera anticipar
+AAPL a 5 días, ya no se podría, porque alguien lo estaría haciendo.
 
 ### `src/predict.py` — usar el modelo guardado
 
@@ -254,11 +299,10 @@ atrás, y que RSI/ATR/volumen den valores en rangos posibles.
 
 ## Estado
 
-- Fase 0, 1, 2 y 3 cerradas. Rama actual: `predict-inference` (Fase 4, falta
-  el README).
-- Dataset: 2138 filas, 13 features, horizonte 5 días.
-- Modelo guardado: `models/aapl_random_forest.pkl` (edge −0.8%, o sea: todavía
-  no le gana a nada). Sigue Fase 4: inferencia.
+- Fase 0 a 4 cerradas. Rama actual: `macro-features` (primer item de Fase 5).
+- Dataset: 2094 filas, 19 features, horizonte 5 días.
+- Modelo guardado: `models/aapl_random_forest.pkl` (edge −1.5%, o sea: todavía
+  no le gana a nada).
 - Bug que encontré en el camino: `tests/test_fetch.py` pisaba
   `data/raw/aapl_ohlcv.csv` con solo 2024-en-adelante, y entrené sin darme
   cuenta con 653 filas en vez de 2138. Arreglado con un `tmp_path` en el test.

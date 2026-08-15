@@ -14,6 +14,12 @@ import yfinance as yf
 
 RAW_DIR = Path(__file__).resolve().parent.parent / "data" / "raw"
 
+# La cartera chica de Fase 5: un CEDEAR liquido por rubro, a proposito de
+# rubros poco correlacionados (tech / e-commerce latam / consumo defensivo).
+# Apilar tres tech seria triplicar filas sin triplicar informacion: se mueven
+# casi juntas, asi que el modelo veria la misma serie tres veces.
+TICKERS = ["AAPL", "MELI", "KO"]
+
 CCL_URL = "https://api.argentinadatos.com/v1/cotizaciones/dolares/contadoconliqui"
 RIESGO_PAIS_URL = "https://api.argentinadatos.com/v1/finanzas/indices/riesgo-pais"
 
@@ -121,9 +127,11 @@ def fetch_macro() -> pd.DataFrame:
 
 
 if __name__ == "__main__":
-    underlying = fetch_underlying("AAPL")
+    for ticker in TICKERS:
+        underlying = fetch_underlying(ticker)
+        print(f"{ticker}: {len(underlying)} filas -> {RAW_DIR / f'{ticker.lower()}_ohlcv.csv'}")
+
     ccl = fetch_ccl()
     macro = fetch_macro()
-    print(f"Subyacente: {len(underlying)} filas -> {RAW_DIR / 'aapl_ohlcv.csv'}")
     print(f"CCL: {len(ccl)} filas -> {RAW_DIR / 'ccl.csv'}")
     print(f"Macro: {len(macro)} filas x {len(macro.columns)} series -> {RAW_DIR / 'macro.csv'}")

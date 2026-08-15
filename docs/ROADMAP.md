@@ -41,7 +41,11 @@ Incrementos en orden. Cada uno es una rama y (idealmente) un commit por tarea ch
 
 - [x] Sumar variables macro (tasa FED, riesgo país) si el modelo simple no alcanza
 - [ ] Evaluar `lightgbm`/`xgboost` solo si sklearn se queda corto
-- [ ] Escalar de 1 CEDEAR a una cartera chica (2-3 tickers)
+- [x] Escalar de 1 CEDEAR a una cartera chica (2-3 tickers)
+
+**Resultado de la cartera (AAPL + MELI + KO): triplicar los datos tampoco crea señal.** Con ~6.300 filas en vez de ~2.100, el edge queda en −0.3% / −2.6% / −3.1% / −1.8% a 1, 5, 10 y 21 días: mejora en tres horizontes y empeora en uno, pero sigue negativo en los cuatro, y el IC sigue entre −0.02 y +0.06. Abierto por ticker a 5 días el edge es −3.6% (AAPL), −1.0% (KO), −3.3% (MELI): tampoco es que ande en uno y los otros lo arrastren. Los tickers se eligieron de rubros poco correlacionados a propósito — apilar tres tecnológicas habría triplicado las filas sin triplicar la información. Dos decisiones de método que esto obligó: el walk-forward corta por **fecha** y no por posición de fila (si no, un mismo día quedaría repartido entre train y test), y el baseline naive se calcula **por ticker** (KO no sube el mismo porcentaje de días que MELI).
+
+Con esto queda cerrada la hipótesis "faltan datos". Lo que falta no son filas: es información que no está en el precio diario público.
 
 **Resultado de las variables macro: tampoco alcanzan.** Con VIX, curva de tasas, tasa FED, CPI y riesgo país (19 features en vez de 13) el edge empeora en 3 de los 4 horizontes: −0.6% / −1.5% / −5.5% / −2.5% a 1, 5, 10 y 21 días. El IC sigue entre −0.04 y +0.07, o sea ruido. Se deja el set completo de features y el número crudo, sin elegir el subconjunto que mejor puntúa: hacer eso sería sobreajustar la validación por la puerta de atrás. Ver `docs/NOTAS.md` para el detalle de por qué las series mensuales hacen ruido.
 

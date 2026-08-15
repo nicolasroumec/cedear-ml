@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.fetch import MACRO_LAGS, RAW_DIR, fetch_ccl, fetch_macro, fetch_underlying
+from src.fetch import MACRO_LAGS, RAW_DIR, TICKERS, fetch_ccl, fetch_macro, fetch_underlying
 
 PROCESSED_DIR = Path(__file__).resolve().parent.parent / "data" / "processed"
 
@@ -222,6 +222,7 @@ def build_dataset(
     df = add_ccl(df, _to_date_index(ccl))
     df = add_macro(df, _to_date_index(macro))
     df = add_target(df, horizon_days)
+    df["ticker"] = ticker
 
     # Se tiran las primeras filas siempre (las ventanas rolling todavia no se
     # llenaron). Las ultimas solo si hace falta el target.
@@ -236,9 +237,39 @@ def build_dataset(
     return df
 
 
+def build_multi_dataset(
+    tickers: list[str] = TICKERS, horizon_days: int = 1, require_target: bool = True
+) -> pd.DataFrame:
+    """Apila los datasets de varios tickers en uno solo, ordenado por fecha.
+
+    Cada ticker se arma por separado (los indicadores tecnicos son de su propia
+    serie) y despues se concatenan. El indice queda con fechas repetidas, una
+    por ticker: es a proposito, y por eso `train.walk_forward_splits` corta por
+    fecha y no por posicion de fila.
+
+    Los features macro y el CCL son los mismos para todos los tickers ese dia:
+    duplicarlos no agrega informacion, pero tampoco molesta, y evita tener dos
+    caminos distintos de armado.
+
+    Args:
+        tickers: simbolos a apilar.
+        horizon_days: horizonte del target, en dias de rueda.
+        require_target: igual que en `build_dataset`.
+
+    Returns:
+        DataFrame indexado por fecha con la columna 'ticker' identificando cada
+        fila. No se persiste: los CSV por ticker que deja `build_dataset` ya
+        alcanzan para reconstruirlo.
+    """
+    frames = [build_dataset(t, horizon_days, require_target) for t in tickers]
+    return pd.concat(frames).sort_index(kind="stable")
+
+
 if __name__ == "__main__":
-    dataset = build_dataset()
+    dataset = build_multi_dataset()
     print(f"Dataset: {len(dataset)} filas x {len(FEATURE_COLUMNS)} features")
     print(f"Rango: {dataset.index.min().date()} -> {dataset.index.max().date()}")
-    print(f"Balance del target: {dataset['target'].mean():.1%} de dias positivos")
-    print(f"Guardado en {PROCESSED_DIR / 'aapl_dataset.csv'}")
+    print(f"Filas por ticker:\n{dataset['ticker'].value_counts().to_string()}")
+    print(f"\nBalance del target por ticker:")
+    print((dataset.groupby("ticker")["target"].mean() * 100).round(1).to_string())
+    print(f"\nUn CSV por ticker en {PROCESSED_DIR}")

@@ -63,6 +63,27 @@ más variables (Fase 5) y no tuneando.
 un número entre 0 y 1. `predict()` corta en 0.5; `predict_proba()` da el número
 crudo, que dice además *cuánta* confianza tiene.
 
+**Simulación (Monte Carlo).** Lo de `proyeccion.py`, y NO es lo mismo que
+entrenar un modelo. Entrenar = mostrarle datos con la respuesta al lado para que
+encuentre un patrón. Simular = inventar 10.000 futuros posibles tirando dados
+con la forma de los datos reales, y mirar cómo se reparten. No aprende nada; me
+dice el rango de lo que puede pasar.
+
+**Bootstrap por bloques.** La forma de tirar esos dados. En vez de sortear días
+sueltos, sorteo **tramos de un mes seguido** de la historia real y los pego uno
+atrás del otro. ¿Por qué en tramos? Porque las rachas malas vienen juntas: si
+sorteo día por día, mezclo un día de marzo 2020 con uno de julio 2021 y borro
+esa agrupación. Y esa agrupación es justo lo que hace el escenario feo.
+
+**Drift.** La rentabilidad anual que le supongo a una acción. Ojo con esta
+palabra: **es un supuesto mío, no una medición.** Ver abajo por qué.
+
+**Percentil (p10 / p50 / p90).** De los 10.000 futuros simulados, ordenados de
+peor a mejor: p50 es el del medio (la mediana), p10 el que deja 10% peores
+abajo, p90 el que deja 10% mejores arriba. "Entre p10 y p90" = donde caen 8 de
+cada 10 escenarios. **La banda no es un adorno: es el resultado.** Un número
+solo sería mentira.
+
 **Por qué el orden de las features importa tanto.** sklearn recibe una matriz
 de números y las identifica **por posición, no por nombre**. Si entrenó con
 `ret_1` en la columna 0 y le paso `rsi_14` ahí, no falla ni avisa: predice
@@ -75,20 +96,27 @@ fruta con total seguridad. Por eso el orden viaja adentro del pkl y
 
 ```
 yfinance (AAPL, USD)  ─┐
-                       ├─> src/fetch.py ──> data/raw/*.csv
-ArgentinaDatos (CCL)  ─┘                        │
+ArgentinaDatos (CCL)   ├─> src/fetch.py ──> data/raw/*.csv
+FRED (macro)           │                        │
+data912 (CEDEARs ARS) ─┘                        │
+                                                ├──────────────┐
+                                                v              v
+                                        src/features.py    src/proyeccion.py ──> rango a 1/3/5 años
+                                                │
                                                 v
-                                        src/features.py ──> data/processed/aapl_dataset.csv
-                                                                    │
-                                                                    v
-                                                            src/train.py ──> models/*.pkl
-                                                                    │
-                                                                    v
-                                                            src/predict.py ──> predicción
+                                        src/train.py ──> models/*.pkl
+                                                │
+                                                v
+                                        src/predict.py ──> predicción a 5 días
 ```
 
 Cada paso guarda en disco. Así el siguiente no vuelve a bajar ni recalcular
 nada, y puedo correr un solo módulo sin correr todo.
+
+**Las dos ramas no se tocan.** `proyeccion.py` no usa el modelo entrenado ni los
+features: agarra los datos crudos y simula. Son dos preguntas distintas y me
+conviene que sigan separadas — si algún día el modelo diario mejora, no quiero
+que eso mueva los números de la proyección a 5 años sin que yo me entere.
 
 ---
 
@@ -259,11 +287,64 @@ pisaría `data/processed/aapl_dataset.csv` con filas sin target y el próximo
 entrenamiento que lo leyera arrancaría con otros datos. Es exactamente el bug
 de `test_fetch` otra vez, así que esta vez lo dejé testeado.
 
+### `src/proyeccion.py` — a cuántos pesos va a estar dentro de 5 años
+
+Esta es la pregunta que yo quería hacer desde el principio y que el modelo de
+arriba no responde. **No es ML y no puede serlo**: a 5 años, en 8 años de
+historia entran 1,6 ventanas independientes. No hay con qué entrenar. Lo que sí
+puedo hacer es simular.
+
+`precio_cedear_ARS = precio_subyacente_USD × CCL / ratio`, pero **el precio de
+hoy no lo calculo con esa fórmula**: lo saco del panel de BYMA (data912). Tres
+cosas se arreglan solas con eso:
+
+- El ratio deja de importar para el resultado (queda solo como control).
+- El nivel de precio de yfinance deja de importar: uso solo sus *retornos*.
+- El premio/descuento del CEDEAR contra su teórico ya viene adentro del precio
+  real, no lo tengo que modelar.
+
+**Lo que más me costó entender, y es el centro de todo:** hay cosas que se
+pueden medir de los datos y cosas que no. Partí la historia al medio y miré:
+
+| | rentab. 1ª mitad | 2ª mitad | vol. 1ª mitad | 2ª mitad |
+|---|---|---|---|---|
+| AAPL | +38,6% | +15,7% | 32,7% | 28,3% |
+| MELI | +32,5% | +14,9% | 53,3% | 46,8% |
+| KO | +12,6% | +9,9% | 21,8% | 16,7% |
+| GLOB | +46,8% | **−33,8%** | 47,8% | 52,6% |
+
+**La volatilidad se repite. La rentabilidad no.** Globant rindió +46,8% anual
+cuatro años y −33,8% los cuatro siguientes. Si en 2022 hubiera proyectado con su
+propio histórico, habría puesto +46,8%.
+
+Y hay una cuenta que lo cierra: el error de medir la rentabilidad es
+`volatilidad / √años`. Con GLOB: 50% / √8 = 18 puntos de error estándar. O sea
+mido −2,2% anual y el verdadero está entre −36,5% y +32,1%. **El número existe,
+se calcula con toda precisión, y no significa nada.**
+
+Por eso `drift_anual` y `deval_anual` son parámetros y no estimaciones. El 8% de
+default es más o menos lo que rindió la bolsa americana en 100 años — que es una
+medición con datos suficientes atrás, a diferencia de mis 8 años.
+
+Corolario que me tengo que acordar: **el modelo no tiene ninguna opinión sobre
+ninguna empresa.** No sabe que Globant se está cayendo. Lo único que sabe de
+cada acción es cuánto se mueve, y eso se ve en el ancho de la banda: GLOB 14,8x
+contra 2,8x de KO. Si quiero meter mi opinión sobre una empresa, la meto yo con
+`drift_anual`, a mano y sabiendo que es mía.
+
+Detalle del bootstrap: los bloques se sortean **una sola vez para todos los
+tickers**. Si cada uno sorteara los suyos, quedarían independientes entre sí y
+la cartera parecería menos riesgosa de lo que es, por un artefacto de la
+simulación. Hay un test solo para eso.
+
 ### `tests/test_fetch.py`
 
 Pega a las APIs de verdad. No testea pandas, testea que las fuentes no me
 cambiaron el formato — que es la forma más común de que esto se rompa sin
 que me entere.
+
+Desde que agregué data912 son cuatro fuentes. Esa es la que más me importa
+que no se rompa: de ahí sale el precio que ancla toda la proyección.
 
 ### `tests/test_features.py`
 
@@ -293,16 +374,30 @@ atrás, y que RSI/ATR/volumen den valores en rangos posibles.
 - **Baseline naive**: 53.6% de los días son positivos. Un modelo que acierta
   54% no está aprendiendo nada, está diciendo "sube" siempre. Ese es el
   número a superar en Fase 3.
-- **El ratio del CEDEAR cambia** (lo ajusta el banco depositario). Todavía no
-  lo estoy usando, pero cuando arme el precio en pesos hay que verificar el
-  vigente o va a aparecer un salto que no es del mercado.
+- **El ratio del CEDEAR cambia** (lo ajusta el banco depositario). Me pasó: tenía
+  MELI en 30:1 y es 120:1. Lo detecté porque cada CEDEAR implica un CCL propio
+  (`precio_ars × ratio / precio_usd`) y los tres tienen que dar parecido; con el
+  ratio mal, ese ticker se despega. Eso es `chequear_precios()`.
+  **El chequeo compara contra el CCL de referencia y no contra la mediana de los
+  tres**: si dos están mal, la mediana se va con ellos y el sano queda señalado
+  como el raro. Lo escribí mal la primera vez y me acusó al ticker equivocado.
+- **Precios pegados a mano envejecen.** Copié precios del broker, dos estaban
+  viejos y la proyección arrancaba de mal lugar. Por eso ahora se bajan solos.
+  Y `data/raw/cedears.csv` es una **foto**, no una serie: envejece en horas.
+- **Medir con precisión no es lo mismo que medir algo.** Puedo calcular la
+  rentabilidad histórica de GLOB con seis decimales y el número no significa
+  nada porque su error es de ±34 puntos. Antes de creerle a un promedio, mirar
+  cuánto se movía la serie de la que salió.
 
 ## Estado
 
-- Fase 0 a 4 cerradas. Rama actual: `macro-features` (primer item de Fase 5).
-- Dataset: 2094 filas, 19 features, horizonte 5 días.
-- Modelo guardado: `models/aapl_random_forest.pkl` (edge −1.5%, o sea: todavía
-  no le gana a nada).
+- Fase 0 a 5 cerradas. Rama actual: `proyeccion-cartera` (Fase 7).
+- Dataset del modelo diario: 6.294 filas (3 tickers), 19 features, horizonte 5 días.
+- Modelo guardado: `models/cartera_random_forest.pkl` (edge negativo, o sea:
+  todavía no le gana a nada).
+- Proyección a 1/3/5 años andando, con precios de BYMA bajándose solos.
+- Cuatro fuentes de datos: yfinance, ArgentinaDatos (CCL + riesgo país), FRED y
+  data912 (panel de CEDEARs, la única del lado argentino).
 - Bug que encontré en el camino: `tests/test_fetch.py` pisaba
   `data/raw/aapl_ohlcv.csv` con solo 2024-en-adelante, y entrené sin darme
   cuenta con 653 filas en vez de 2138. Arreglado con un `tmp_path` en el test.

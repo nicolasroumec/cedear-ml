@@ -1,6 +1,15 @@
 # cedear-ml
 
-Pipeline de ML para predecir el retorno/dirección de CEDEARs. Ver `CLAUDE.md` para las reglas de dominio (por qué se predice retorno y no precio, CCL, look-ahead bias, etc.).
+Dos preguntas distintas sobre CEDEARs, dos herramientas separadas que no comparten nada más que los datos:
+
+| Pregunta | Módulo | Estado |
+|---|---|---|
+| ¿Mañana sube o baja? | `train.py` + `predict.py` | Anda de punta a punta, **sin señal** |
+| ¿Cuánto vale mi cartera en 1, 3 o 5 años? | `proyeccion.py` | Anda |
+
+La primera es un modelo de ML entrenado. La segunda no puede serlo y no lo intenta: a 5 años, en 8 años de historia entran ~1,6 ventanas independientes, así que no hay con qué entrenar. Es una simulación.
+
+Ver `CLAUDE.md` para las reglas de dominio (por qué se predice retorno y no precio, CCL, look-ahead bias, etc.).
 
 ## Setup
 
@@ -15,10 +24,11 @@ pip install -r requirements.txt
 Cada paso deja su resultado en disco, así que el siguiente no vuelve a bajar ni recalcular nada. Corridos en orden, van de cero a una predicción:
 
 ```bash
-python -m src.fetch          # OHLCV de yfinance + CCL de ArgentinaDatos -> data/raw/
+python -m src.fetch          # yfinance + CCL + macro + panel de BYMA   -> data/raw/
 python -m src.features       # indicadores tecnicos + CCL + target      -> data/processed/
 python -m src.train          # walk-forward, compara modelos, guarda    -> models/
 python -m src.predict        # ranking de la cartera por prob. de suba
+python -m src.proyeccion     # valor de la cartera en pesos a 1/3/5 años
 pytest                       # corre los tests
 ```
 
@@ -82,3 +92,54 @@ Vale la pena mirar la trampa que esconde la tabla de horizontes. A 21 días el m
 - FRED devuelve valores **revisados**, no los que se conocían en cada momento. Para datos *point-in-time* de verdad habría que usar ALFRED.
 - No se tunean hiperparámetros para mejorar el número: eso sería sobreajustar la validación y cambiar un modelo honesto por uno que miente mejor.
 - El pipeline está completo y validado (sin look-ahead bias, con split temporal, con la demora de publicación de cada serie macro respetada); lo que falta es señal.
+
+## Proyección a varios años
+
+La otra pregunta: **¿cuánto va a valer mi cartera en pesos dentro de 1, 3 o 5 años?** Editás tu tenencia en `CARTERA` (`src/proyeccion.py`) y corrés:
+
+```bash
+python -m src.fetch
+python -m src.proyeccion
+```
+
+```
+A 5 anios, escenario devaluacion 20%/anio
+           hoy $      p10 $      p50 $      p90 $ p50 en $ de hoy      x
+AAPL      24,060     39,856     90,678    208,102          36,442  3.77x
+MELI      24,170     22,206     86,296    320,387          34,680  3.57x
+KO        27,660     58,058     99,078    162,015          39,817  3.58x
+CARTERA  980,440  2,275,228  3,775,160  6,188,522       1,517,152  3.85x
+```
+
+**La columna que importa es `p50 en $ de hoy`.** De los 3,8 millones nominales, 1,5 son ganancia real; el resto es que el peso vale menos. Un número solo escondería eso.
+
+### Cómo funciona
+
+Se simulan 10.000 futuros posibles remuestreando bloques de un mes de retornos históricos reales (no una distribución teórica: así se conservan las colas y los clusters de volatilidad). Los bloques se sortean **una vez para todos los tickers**, de modo que la correlación entre ellos sale de los datos sin estimarla.
+
+El precio de partida es el que cotiza en BYMA, no `subyacente × CCL / ratio`. Con eso el ratio deja de afectar el resultado —solo se usa como control en `chequear_precios()`— y el premio o descuento del CEDEAR contra su valor teórico ya viene incluido en el precio.
+
+### Qué se estima y qué se supone
+
+Esta es la distinción central del módulo. Partiendo la historia al medio:
+
+| | rentabilidad 1ª mitad | 2ª mitad | volatilidad 1ª mitad | 2ª mitad |
+|---|---|---|---|---|
+| AAPL | +38,6% | +15,7% | 32,7% | 28,3% |
+| MELI | +32,5% | +14,9% | 53,3% | 46,8% |
+| KO | +12,6% | +9,9% | 21,8% | 16,7% |
+| GLOB | +46,8% | **−33,8%** | 47,8% | 52,6% |
+
+**La volatilidad se repite; la rentabilidad no.** Globant rindió +46,8% anual durante cuatro años y −33,8% los cuatro siguientes. Medida sobre los 8 años completos da −2,2%, pero el error de esa medición (volatilidad / √años) es de ±34 puntos: el valor real está entre −36,5% y +32,1%. El número existe y no significa nada.
+
+Por eso la volatilidad se estima de los datos y **la rentabilidad esperada y la devaluación van como supuestos explícitos** (`drift_anual`, `deval_anual`). El default de 8% anual en USD es aproximadamente el rendimiento de la bolsa americana en 100 años: una estimación con muchos más datos atrás que los 8 años de cualquiera de estos tickers.
+
+El modelo no tiene opinión sobre ninguna empresa. Lo que sí sabe, y salió de los datos, es el riesgo: la banda de Globant es 14,8x de ancha contra 2,8x de KO.
+
+### Limitaciones
+
+- **La devaluación domina el resultado en pesos.** A 5 años, cambiar el supuesto de 10% a 30% anual mueve la mediana de la cartera de 2,4 a 5,6 millones. Por eso se imprime la grilla de sensibilidad: el número final depende más de ese supuesto que de las tres acciones juntas.
+- El CCL entra como factor determinista, no como variable simulada. Es a propósito: no es una serie con historia proyectable (67% anual compuesto desde 2018, +3,4% en 2026), y ponerle una distribución inventada le daría al resultado una precisión falsa. La consecuencia es que la banda p10–p90 **subestima** la incertidumbre real: es solo el riesgo del subyacente en USD.
+- No hay costos, impuestos ni dividendos. El spread real está en `data/raw/cedears.csv` (0,2–0,5% en los tickers de la cartera) pero todavía no se descuenta.
+- El horizonte se redondea al múltiplo de 21 días más cercano (±2 semanas a 5 años).
+- Los tickers están elegidos hoy sabiendo cómo les fue: cualquier resultado sobre esta canasta tiene sesgo de supervivencia.

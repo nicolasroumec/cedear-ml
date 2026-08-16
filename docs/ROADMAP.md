@@ -49,6 +49,42 @@ Con esto queda cerrada la hipótesis "faltan datos". Lo que falta no son filas: 
 
 **Resultado de las variables macro: tampoco alcanzan.** Con VIX, curva de tasas, tasa FED, CPI y riesgo país (19 features en vez de 13) el edge empeora en 3 de los 4 horizontes: −0.6% / −1.5% / −5.5% / −2.5% a 1, 5, 10 y 21 días. El IC sigue entre −0.04 y +0.07, o sea ruido. Se deja el set completo de features y el número crudo, sin elegir el subconjunto que mejor puntúa: hacer eso sería sobreajustar la validación por la puerta de atrás. Ver `docs/NOTAS.md` para el detalle de por qué las series mensuales hacen ruido.
 
+## Fase 7 — Proyección a varios años (listo)
+
+Fase aparte y no continuación de la 5: es **otra pregunta**. Las fases 1-5
+responden "¿mañana sube o baja?"; esta responde "¿cuánto vale mi cartera en
+pesos dentro de 1, 3 o 5 años?", que es lo que motivó el proyecto desde el
+principio. No comparte código con el modelo entrenado y no debería.
+
+- [x] `src/fetch.py::fetch_cedears()` — panel de CEDEARs de BYMA vía data912
+      (público, sin API key). Primera fuente del lado argentino y la única con
+      `bid`/`ask`.
+- [x] `src/proyeccion.py` — bootstrap por bloques de retornos históricos, con
+      los mismos bloques para todos los tickers para conservar su correlación
+- [x] Anclar el precio de hoy en el que cotiza en BYMA, no en
+      `subyacente × CCL / ratio`
+- [x] `chequear_precios()` — control de que ratios y precios cierran contra el CCL
+- [x] Tests: que el nivel de yfinance no afecte el resultado, que los tickers
+      compartan bloques, que el chequeo detecte un ratio cambiado
+
+**Por qué no es ML.** A 5 años, en 8 años de historia entran ~1,6 ventanas
+independientes. No hay con qué entrenar, y fingir que sí sería peor que no
+hacerlo. Es una simulación: 10.000 futuros posibles, y la salida es un rango.
+
+**La decisión de diseño que sostiene todo:** la volatilidad se estima de los
+datos, la rentabilidad esperada y la devaluación no. Partiendo la historia al
+medio, la volatilidad se repite (AAPL 32,7% → 28,3%) y la rentabilidad no
+(GLOB +46,8% → −33,8%). El error de estimar rentabilidad con 8 años es
+`vol/√años` = ±34 puntos para GLOB. Por eso van como parámetros explícitos y no
+como estimaciones disfrazadas.
+
+Pendiente si se retoma: descontar el spread real (ya está en
+`data/raw/cedears.csv`, 0,2-0,5% en los tickers de la cartera), impuestos y
+dividendos. Y decidir si `drift_anual` pasa a ser por ticker — se evaluó y se
+descartó: serían opiniones sobre cada empresa escritas en el código, que a los
+tres meses ya nadie recuerda que eran corazonadas. Mejor correr el escenario
+suelto cuando hace falta.
+
 ## Fase 6 — Portfolio (proyecto pensado para mostrarse, ver `docs/WORKFLOW.md`)
 
 - [ ] Docstrings + type hints en todas las funciones de `src/` (hoy los stubs no los tienen)

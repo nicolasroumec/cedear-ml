@@ -23,6 +23,9 @@ TICKERS = ["AAPL", "MELI", "KO"]
 CCL_URL = "https://api.argentinadatos.com/v1/cotizaciones/dolares/contadoconliqui"
 RIESGO_PAIS_URL = "https://api.argentinadatos.com/v1/finanzas/indices/riesgo-pais"
 
+# Panel de CEDEARs de BYMA. Publica y sin API key, igual que las de arriba.
+CEDEARS_URL = "https://data912.com/live/arg_cedears"
+
 # El endpoint CSV de FRED no pide API key, asi que no hay secreto que manejar.
 FRED_CSV_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv?id={}"
 
@@ -126,6 +129,39 @@ def fetch_macro() -> pd.DataFrame:
     return macro
 
 
+def fetch_cedears() -> pd.DataFrame:
+    """Descarga el panel de CEDEARs de BYMA: precio en pesos, puntas y volumen.
+
+    Es la primera fuente del proyecto que trae el **lado argentino**. Hasta ahora
+    el precio en pesos habia que calcularlo como `subyacente x CCL / ratio`, que
+    da el valor *teorico* y no el que efectivamente cotiza: son cosas distintas
+    y la diferencia es justamente el premio o descuento del CEDEAR.
+
+    Ademas es la unica fuente con `bid`/`ask`, o sea el costo real de entrar y
+    salir. Sin ese numero cualquier estrategia se evalua sin su principal gasto.
+
+    A diferencia del resto de `fetch.py` esto es una foto del momento, no una
+    serie historica: data912 sirve el estado actual del panel. Para historico en
+    pesos, yfinance tiene el CEDEAR con sufijo `.BA` (`fetch_underlying("AAPL.BA")`).
+
+    Returns:
+        DataFrame indexado por simbolo con cierre, bid, ask, spread relativo,
+        volumen (nominales) y cantidad de operaciones.
+    """
+    response = requests.get(CEDEARS_URL, timeout=30)
+    response.raise_for_status()
+
+    df = pd.DataFrame(response.json())
+    df = df.rename(
+        columns={"c": "cierre", "px_bid": "bid", "px_ask": "ask", "v": "volumen", "q_op": "operaciones"}
+    ).set_index("symbol")[["cierre", "bid", "ask", "volumen", "operaciones", "pct_change"]]
+    df["spread"] = (df["ask"] - df["bid"]) / ((df["ask"] + df["bid"]) / 2)
+
+    RAW_DIR.mkdir(parents=True, exist_ok=True)
+    df.to_csv(RAW_DIR / "cedears.csv")
+    return df
+
+
 if __name__ == "__main__":
     for ticker in TICKERS:
         underlying = fetch_underlying(ticker)
@@ -133,5 +169,7 @@ if __name__ == "__main__":
 
     ccl = fetch_ccl()
     macro = fetch_macro()
+    cedears = fetch_cedears()
     print(f"CCL: {len(ccl)} filas -> {RAW_DIR / 'ccl.csv'}")
     print(f"Macro: {len(macro)} filas x {len(macro.columns)} series -> {RAW_DIR / 'macro.csv'}")
+    print(f"CEDEARs: {len(cedears)} simbolos -> {RAW_DIR / 'cedears.csv'}")
